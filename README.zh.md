@@ -24,7 +24,7 @@ dsh plugin --profile web add github:MMMichelsa/dsh-plain-approvals
 固定版本安装（推荐，标签发布后可用）：
 
 ```bash
-dsh plugin --profile web add github:MMMichelsa/dsh-plain-approvals#v1.0.2
+dsh plugin --profile web add github:MMMichelsa/dsh-plain-approvals#v1.0.3
 ```
 
 > 把 `web` 换成你实际的 profile 名（桌面版通常是 `desktop`）。安装需要网络，pnpm 会从 GitHub 拉取仓库。

@@ -10,15 +10,15 @@ This repository ships to users through GitHub (pnpm `github:` spec); there is no
 5. Tag and push the tag:
 
    ```bash
-   git tag v1.0.2
-   git push origin v1.0.2
+   git tag v1.0.3
+   git push origin v1.0.3
    ```
 
 6. Create a GitHub Release for the tag, pasting the CHANGELOG entry as notes.
    Pinned installs then work:
 
    ```bash
-   dsh plugin --profile web add github:MMMichelsa/dsh-plain-approvals#v1.0.2
+   dsh plugin --profile web add github:MMMichelsa/dsh-plain-approvals#v1.0.3
    ```
 
 Keep the layout intact: the package entry must stay at `lib/index.js`, tests at `test/index.test.mjs`,

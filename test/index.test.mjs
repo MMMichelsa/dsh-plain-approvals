@@ -109,6 +109,33 @@ test('collectArgsPaths / pathsFromCommand / pathsFromText: 提取路径', () => 
   assert.deepEqual(pathsFromText('没有路径'), [])
 })
 
+test('pathsFromCommand: 只从会改动文件的命令段取路径，且拒收子表达式', () => {
+  const destroyCmd = 'Remove-Item -Path .\\_probe.txt -Force; "exists=$(Test-Path .\\_probe.txt)"; Get-Content "$env:USERPROFILE\\.dsh\\a.log" -Tail 1'
+  assert.deepEqual(pathsFromCommand(destroyCmd), ['.\\_probe.txt'])
+
+  const writeCmd = 'Set-Location C:\\ws; Set-Content -Path .\\x.txt -Value y'
+  assert.deepEqual(pathsFromCommand(writeCmd), ['.\\x.txt'])
+
+  assert.deepEqual(pathsFromCommand('Remove-Item C:/a, C:/b'), ['C:/a', 'C:/b'])
+})
+
+test('approvalDisplayText: 删除卡片不再列出子表达式伪路径', () => {
+  rememberToolCall({ callId: 'call-junk', arguments: { command: 'Remove-Item .\\old.txt; "exists=$(Test-Path .\\old.txt)"' } })
+  try {
+    const text = approvalDisplayText({
+      toolName: 'pwsh',
+      callId: 'call-junk',
+      reason: 'escalate sandbox to danger-full-access: 清理临时文件',
+    })
+    assert.match(text.zh, /old\.txt/)
+    assert.doesNotMatch(text.zh, /Test-Path/)
+    assert.doesNotMatch(text.zh, /\$\(/)
+    assert.doesNotMatch(text.en, /\$\(/)
+  } finally {
+    forgetToolCall({ callId: 'call-junk' })
+  }
+})
+
 test('approvalDisplayText: 沙箱提权但看不出命令 → 中性提示，带模式解释与理由', () => {
   const text = approvalDisplayText(sandboxRequest())
   assert.match(text.zh, /⚙️/)

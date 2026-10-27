@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.3
+
+- Path lists only describe commands that actually change files: a `Set-Location C:\ws` prepended to a
+  command no longer shows up as a file the operation will write or delete.
+- Quoted expressions are no longer reported as paths: `"exists=$(Test-Path .\x.txt)"` used to appear as a
+  phantom "file to be deleted" on the card; candidates containing `$(`, `=`, backticks or braces are rejected.
+- Redirect targets and comma-separated arguments (`Remove-Item C:/a, C:/b`) are still extracted.
+- Test suite: 32 → 34 cases. Verified end to end on DSH `0.2.1-rc.3`: write and destroy cards, and question
+  rewriting, all reached the live session log.
+
 ## 1.0.2
 
 - Neutral copy: removed the hardcoded "fat fish" persona (本鱼 / "this fish") from all cards;

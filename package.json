@@ -1,6 +1,6 @@
 {
   "name": "dsh-plain-approvals",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "DSH plugin: plain-language approval cards with risk levels and file paths, plus plain-language question rewriting",
   "repository": {
     "type": "git",

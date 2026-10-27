@@ -24,7 +24,7 @@ Restart the Harness service afterwards.
 Pinned version (recommended once the tag exists):
 
 ```bash
-dsh plugin --profile web add github:MMMichelsa/dsh-plain-approvals#v1.0.2
+dsh plugin --profile web add github:MMMichelsa/dsh-plain-approvals#v1.0.3
 ```
 
 > Replace `web` with your own profile name (desktop builds usually use `desktop`). Installation needs network access: pnpm fetches the repository from GitHub.
