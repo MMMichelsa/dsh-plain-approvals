@@ -11,6 +11,57 @@ Everything is fail-open: if rewriting fails for any reason, the original text is
 
 > **Status: tested against DSH `0.2.1-rc.3`.** This plugin hooks *internal* seams (Cordis waterfalls and the browser panel's `displayReason` field). Those are not public API and may change in future DSH releases. When they do, the plugin degrades to showing the original text.
 
+## Install
+
+Install from GitHub:
+
+```bash
+dsh plugin --profile web add github:MMMichelsa/dsh-plain-approvals
+```
+
+Restart the Harness service afterwards.
+
+Pinned version (recommended once the tag exists):
+
+```bash
+dsh plugin --profile web add github:MMMichelsa/dsh-plain-approvals#v1.0.1
+```
+
+> Replace `web` with your own profile name (desktop builds usually use `desktop`). Installation needs network access: pnpm fetches the repository from GitHub.
+>
+> If `git` is not installed (pnpm reports a git error), install from the tarball instead:
+>
+> ```powershell
+> dsh plugin --profile web add https://codeload.github.com/MMMichelsa/dsh-plain-approvals/tar.gz/refs/heads/main
+> ```
+
+Confirm `dsh-plain-approvals` ends up in the profile's `dsh.profile.bundles`.
+Uninstall with `dsh plugin --profile web remove dsh-plain-approvals` and remove it from `dsh.profile.bundles`.
+
+Local development (link a checkout):
+
+```powershell
+dsh plugin --profile <profile> add link:<absolute path to this repo>
+```
+
+## What it looks like
+
+```text
+Before: Allow this operation with danger-full-access permissions: update the profile config
+
+After:  ⚠️ 高危操作，请确认！本鱼要把「edit」这一次操作放宽到 danger-full-access 权限
+        （沙箱几乎完全关闭：可以读写这台电脑上的任意文件……），它会改动或删除：
+        C:\Users\you\.dsh\profiles\desktop\cordis.patch.yml。
+        只对这一次有效，批准了就收不回；拿不准就点拒绝，本鱼会停下解释，不会绕道。
+        理由：update the profile config
+```
+
+```text
+Before: Which sandbox mode should the retry use?  (option labels: workspace-write / danger-full-access)
+
+After: 这次重试应该用哪种权限？ (option labels unchanged; descriptions gain the Chinese explanation)
+```
+
 ## What it changes
 
 | UI | Before | After |
@@ -20,8 +71,6 @@ Everything is fail-open: if rewriting fails for any reason, the original text is
 | Command approval without an obvious delete/overwrite | technical wording | `⚙️ 需要你批准：…没发现明显的删除/覆盖指令，但命令仍可能有副作用…` |
 | Other approvals | the asker's own wording | `【需要你批准】…` |
 | Model question cards | model wording (possibly English or jargon) | rewritten into plain Chinese; **option labels stay byte-identical**, descriptions gain a label explanation |
-
-Approval copy uses a fixed in-house voice (the "fat fish" persona). Question rewriting stays neutral and prioritizes accuracy.
 
 ## Risk classification
 
@@ -53,32 +102,10 @@ Approval requests do not carry tool arguments (by design in DSH), so the plugin 
 - Questions: one small model call per batch (about 1–3 s, a few hundred tokens), 15 s timeout; skipped entirely for Chinese-only questions.
 - Fail-open everywhere: missing model, timeout, invalid output, label mismatch → original text.
 
-## Install
+## Voice
 
-Install from GitHub:
-
-```bash
-dsh plugin --profile web add github:MMMichelsa/dsh-plain-approvals
-```
-
-Restart the Harness service afterwards.
-
-> Replace `web` with your own profile name (desktop builds usually use `desktop`). Installation needs network access: pnpm fetches the repository from GitHub.
->
-> If `git` is not installed (pnpm reports a git error), install from the tarball instead:
->
-> ```powershell
-> dsh plugin --profile web add https://codeload.github.com/MMMichelsa/dsh-plain-approvals/tar.gz/refs/heads/main
-> ```
-
-Confirm `dsh-plain-approvals` ends up in the profile's `dsh.profile.bundles`.
-Uninstall with `dsh plugin --profile web remove dsh-plain-approvals` and remove it from `dsh.profile.bundles`.
-
-Local development (link a checkout):
-
-```powershell
-dsh plugin --profile <profile> add link:<absolute path to this repo>
-```
+Approval copy uses the built-in "fat fish" persona on purpose. To change it, edit the template strings in
+`approvalDisplayText()` in [`lib/index.js`](lib/index.js) — it is a local template, no model call involved.
 
 ## Diagnostics
 
@@ -97,6 +124,7 @@ npm test            # runs node test/index.test.mjs
 ```
 
 `node --test` cannot spawn child processes inside DSH's sandbox, so the suite is a plain script using `node:test` directly.
+Release steps are in [RELEASING.md](RELEASING.md).
 
 ## Compatibility
 

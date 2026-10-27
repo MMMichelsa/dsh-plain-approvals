@@ -11,6 +11,57 @@
 
 > **状态：已在 DSH `0.2.1-rc.3` 实测通过。** 插件挂的是**内部 seam**（Cordis waterfall 和浏览器面板的 `displayReason` 字段），不是公开 API。DSH 升级后可能失效；失效时插件退化为显示原话，不会崩溃。
 
+## 安装方式
+
+在终端运行以下命令即可安装本插件：
+
+```bash
+dsh plugin --profile web add github:MMMichelsa/dsh-plain-approvals
+```
+
+安装后请重启 Harness 服务。
+
+固定版本安装（推荐，标签发布后可用）：
+
+```bash
+dsh plugin --profile web add github:MMMichelsa/dsh-plain-approvals#v1.0.1
+```
+
+> 把 `web` 换成你实际的 profile 名（桌面版通常是 `desktop`）。安装需要网络，pnpm 会从 GitHub 拉取仓库。
+>
+> 如果本机没有 `git`（pnpm 报 git 相关错误），改用 tarball 安装：
+>
+> ```powershell
+> dsh plugin --profile web add https://codeload.github.com/MMMichelsa/dsh-plain-approvals/tar.gz/refs/heads/main
+> ```
+
+确认 profile 的 `dsh.profile.bundles` 里含 `dsh-plain-approvals`。
+卸载：`dsh plugin --profile web remove dsh-plain-approvals`，再从 `dsh.profile.bundles` 移除。
+
+本地开发（link 本地目录）：
+
+```powershell
+dsh plugin --profile <profile> add link:<本仓库的绝对路径>
+```
+
+## 效果示意
+
+```text
+原始：允许本次操作使用 danger-full-access 权限：写 profile 配置
+
+改后：⚠️ 高危操作，请确认！本鱼要把「edit」这一次操作放宽到 danger-full-access 权限
+     （沙箱几乎完全关闭：可以读写这台电脑上的任意文件……），它会改动或删除：
+     C:\Users\你\.dsh\profiles\desktop\cordis.patch.yml。
+     只对这一次有效，批准了就收不回；拿不准就点拒绝，本鱼会停下解释，不会绕道。
+     理由：写 profile 配置。
+```
+
+```text
+原始提问：Which sandbox mode should the retry use?（选项 label 为 workspace-write / danger-full-access）
+
+改后提问：这次重试应该用哪种权限？（选项 label 保持原样，描述里补中文解释）
+```
+
 ## 它改什么
 
 | 界面 | 原始样子 | 改后 |
@@ -20,8 +71,6 @@
 | 命令类审批（未发现删除/覆盖） | 技术化说明 | `⚙️ 需要你批准：…没发现明显的删除/覆盖指令，但命令仍可能有副作用…` |
 | 其它审批 | 工具自带说明 | `【需要你批准】…` |
 | 模型提问卡片 | 模型原话（可能是英文或术语） | 改写成通俗中文；**选项 label 原样保留**，描述里补 label 的中文解释 |
-
-审批文案使用内置的「大肥鱼」口吻；提问卡片改写保持中性、以准确为先。
 
 ## 风险分级
 
@@ -57,33 +106,6 @@ DSH 的审批请求按设计**不携带工具参数**，所以插件在 `tools/p
 - 提问卡片：每批一次小模型调用（约 1–3 秒、几百 token），超时 15 秒；纯中文问题不调用。
 - 一切 fail-open：取不到模型、超时、输出不合规、label 对不上 → 显示原话。
 
-## 安装方式
-
-在终端运行以下命令即可安装本插件：
-
-```bash
-dsh plugin --profile web add github:MMMichelsa/dsh-plain-approvals
-```
-
-安装后请重启 Harness 服务。
-
-> 把 `web` 换成你实际的 profile 名（桌面版通常是 `desktop`）。安装需要网络，pnpm 会从 GitHub 拉取仓库。
->
-> 如果本机没有 `git`（pnpm 报 git 相关错误），改用 tarball 安装：
->
-> ```powershell
-> dsh plugin --profile web add https://codeload.github.com/MMMichelsa/dsh-plain-approvals/tar.gz/refs/heads/main
-> ```
-
-确认 profile 的 `dsh.profile.bundles` 里含 `dsh-plain-approvals`。
-卸载：`dsh plugin --profile web remove dsh-plain-approvals`，再从 `dsh.profile.bundles` 移除。
-
-本地开发（link 本地目录）：
-
-```powershell
-dsh plugin --profile <profile> add link:<本仓库的绝对路径>
-```
-
 ## 诊断日志
 
 插件每次事件向 `~/.dsh/dsh-plain-approvals.log` 追加一行：激活（带 build 标记）、审批分级
@@ -96,6 +118,11 @@ dsh plugin --profile <profile> add link:<本仓库的绝对路径>
 - 提问文字会发给**当前**模型 provider 做改写（就是产出它的那个 provider），除此之外不外发；
 - 插件自身不发网络请求、不读取凭据。
 
+## 文案风格
+
+审批文案使用内置的「大肥鱼」口吻（本鱼…），这是刻意的风格选择；不喜欢可以直接改
+[`lib/index.js`](lib/index.js) 里 `approvalDisplayText()` 的模板字符串，纯本地模板，不调模型。
+
 ## 开发
 
 ```bash
@@ -103,6 +130,7 @@ npm test            # 运行 node test/index.test.mjs
 ```
 
 DSH 沙箱内 `node --test` 无法拉起子进程，所以测试是一个直接用 `node:test` 的普通脚本。
+发布流程见 [RELEASING.md](RELEASING.md)。
 
 ## 兼容性
 
