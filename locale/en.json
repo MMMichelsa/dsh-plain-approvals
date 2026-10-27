@@ -1,0 +1,20 @@
+{
+  "read_escalated": "🟢 Read-only operation: this request only reads {paths}; no file is modified. The agent wants to widen this one \"{tool}\" call to {mode} ({gloss}), but the operation itself only reads. The grant covers this single request. {reason}",
+  "read_plain": "🟢 Read-only operation: this request only reads {paths}; no file is modified. The grant covers this single request. {reason}",
+  "write_escalated": "⚠️ FILE WRITES AHEAD — please confirm. The agent wants to widen this one \"{tool}\" call to {mode} ({gloss}), and it will write to: {paths}. The grant covers this single request and cannot be undone. If unsure, reject: the agent then stops and explains. {reason}",
+  "write_plain": "⚠️ FILE WRITES AHEAD — please confirm. This operation will write to: {paths}. The grant covers this single request and cannot be undone. If unsure, reject: the agent then stops and explains. {reason}",
+  "destroy_escalated": "🔴 DESTRUCTIVE OPERATION — please confirm. The agent wants to widen this one \"{tool}\" call to {mode} ({gloss}), and it will delete or overwrite: {paths}. The grant covers this single request and cannot be undone. If unsure, reject: the agent then stops and explains. {reason}",
+  "destroy_plain": "🔴 DESTRUCTIVE OPERATION — please confirm. This operation will delete or overwrite: {paths}. The grant covers this single request and cannot be undone. If unsure, reject: the agent then stops and explains. {reason}",
+  "command": "⚙️ Approval needed: the agent wants to run one command with {mode} permissions ({gloss}). The command text is shown in the detail below. No obvious delete or overwrite was found, but the command may still have side effects. The grant covers this single request. {reason}",
+  "neutral": "Approval needed: the agent asks to run one \"{tool}\" operation. {original}The grant covers this single request only; rejecting is fine — the agent then stops and explains.",
+  "reason": "Stated reason: {text}.",
+  "original": " Its original wording: \"{text}\".",
+  "paths_none": "(no concrete path found; see the detail below)",
+  "paths_command_none": "(the command names no path; it may act on the current directory)",
+  "paths_command": "{paths} (extracted from the command; may be incomplete)",
+  "paths_reason": "{paths} (extracted from the approval note; may be incomplete)",
+  "mode.read-only": "read-only; no file writes are allowed",
+  "mode.workspace-write": "writes become possible inside this workspace and temporary areas; everything else stays read-only",
+  "mode.danger-full-access": "the sandbox is essentially lifted: any file on this machine can be read or written, any system command may run, and network access is allowed",
+  "mode.fallback": "wider access than the current sandbox mode"
+}

@@ -24,7 +24,7 @@ Restart the Harness service afterwards.
 Pinned version (recommended once the tag exists):
 
 ```bash
-dsh plugin --profile web add github:MMMichelsa/dsh-plain-approvals#v1.0.1
+dsh plugin --profile web add github:MMMichelsa/dsh-plain-approvals#v1.0.2
 ```
 
 > Replace `web` with your own profile name (desktop builds usually use `desktop`). Installation needs network access: pnpm fetches the repository from GitHub.
@@ -49,12 +49,15 @@ dsh plugin --profile <profile> add link:<absolute path to this repo>
 ```text
 Before: Allow this operation with danger-full-access permissions: update the profile config
 
-After:  ⚠️ 高危操作，请确认！本鱼要把「edit」这一次操作放宽到 danger-full-access 权限
-        （沙箱几乎完全关闭：可以读写这台电脑上的任意文件……），它会改动或删除：
-        C:\Users\you\.dsh\profiles\desktop\cordis.patch.yml。
-        只对这一次有效，批准了就收不回；拿不准就点拒绝，本鱼会停下解释，不会绕道。
+After:  ⚠️ 会写入文件，请确认。助手要把「write」这一次调用放宽到 danger-full-access 权限
+        （沙箱几乎完全关闭：可以读写这台电脑上的任意文件、运行任意系统命令、访问网络），
+        并会写入：C:\Users\you\.dsh\profiles\desktop\cordis.patch.yml。
+        授权只对这一次有效，批准后无法撤回；拿不准就拒绝，助手会停下来解释，不会绕开。
         理由：update the profile config
 ```
+
+Delete / overwrite operations get a louder 🔴 card with the exact paths they will remove or overwrite.
+English cards carry the same information, e.g. `🔴 DESTRUCTIVE OPERATION — please confirm. The agent wants to widen this one "pwsh" call to danger-full-access (…), and it will delete or overwrite: …`.
 
 ```text
 Before: Which sandbox mode should the retry use?  (option labels: workspace-write / danger-full-access)
@@ -66,9 +69,10 @@ After: 这次重试应该用哪种权限？ (option labels unchanged; descriptio
 
 | UI | Before | After |
 |---|---|---|
-| Read-type approval (rare) | `Allow this operation with read-only permissions: …` | `🟢 读取操作：本鱼只是想读 <path>，不会改动任何文件。…` |
-| Write / edit / delete approval | `Allow this operation with danger-full-access permissions: …` | `⚠️ 高危操作，请确认！…它会改动或删除：<path list>。…` |
-| Command approval without an obvious delete/overwrite | technical wording | `⚙️ 需要你批准：…没发现明显的删除/覆盖指令，但命令仍可能有副作用…` |
+| Read-type approval (rare) | `Allow this operation with read-only permissions: …` | `🟢 读取操作：这次只是读取 <path>，不会改动任何文件。…` |
+| Write-type approval | `Allow this operation with danger-full-access permissions: …` | `⚠️ 会写入文件，请确认。…并会写入：<path list>。…` |
+| Delete / overwrite approval | same | `🔴 高危操作，请确认！…它会删除或覆盖：<path list>。…` |
+| Command approval without an obvious delete/overwrite | technical wording | `⚙️ 需要你批准：…没有发现明显的删除或覆盖指令，但命令仍可能有副作用…` |
 | Other approvals | the asker's own wording | `【需要你批准】…` |
 | Model question cards | model wording (possibly English or jargon) | rewritten into plain Chinese; **option labels stay byte-identical**, descriptions gain a label explanation |
 
@@ -77,10 +81,11 @@ After: 这次重试应该用哪种权限？ (option labels unchanged; descriptio
 | Class | Basis | Presentation |
 |---|---|---|
 | Read | tool name is `read`, `read_image`, `glob`, `grep`, `web_fetch`, … | `🟢` read-only note, never a high-risk warning |
-| High risk | `write` / `edit` / delete tools; or a command containing `Remove-Item`, `rm`, `del`, `Move-Item`, `Set-Content`, output redirection, … | `⚠️ 高危操作，请确认` plus the file paths |
-| Other | shell commands without an obvious delete/overwrite; unknown tools | neutral `⚙️` note |
+| Write | `write` / `edit` / `apply_patch` / `str_replace_editor`; or a command whose first word is `Set-Content`, `Add-Content`, `Out-File`, `Copy-Item`, `Move-Item`, `New-Item`, `tee`, …; or a `> file` output redirect | `⚠️ 会写入文件` plus the paths |
+| Delete | `delete_file` / `remove_file`, …; or a command whose first word is `rm`, `del`, `rd`, `ri`, `rmdir`, `Remove-Item`, `Clear-Content`, …; or `git clean` / `git reset --hard` / `git checkout --`; or `shutil.rmtree` / `os.remove` inside a script | `🔴 高危操作` plus the paths |
+| Other | shell commands without any of the above; unknown tools | neutral `⚙️` note |
 
-Approval requests do not carry tool arguments (by design in DSH), so the plugin caches each call's `arguments` from `tools/pre-execute` (keyed by `callId`, cleared on `tools/result`, at most 256 entries). File paths for `write` / `edit` come from `file_path` exactly; for `pwsh` / `bash` they are extracted heuristically from the command and the card says so.
+Approval requests do not carry tool arguments (by design in DSH), so the plugin caches each call's `arguments` from `tools/pre-execute` (keyed by `callId`, cleared on `tools/result`, at most 256 entries). File paths for `write` / `edit` come from `file_path` exactly; for `pwsh` / `bash` they are extracted heuristically from the command and the card says so. When neither source yields a path, the plugin falls back to paths found in the approval note, and otherwise says the path is unknown instead of guessing.
 
 ## What it does not change
 
@@ -99,13 +104,12 @@ Approval requests do not carry tool arguments (by design in DSH), so the plugin 
 ## Cost
 
 - Approvals: local templates, **zero tokens, zero latency**.
-- Questions: one small model call per batch (about 1–3 s, a few hundred tokens), 15 s timeout; skipped entirely for Chinese-only questions.
+- Questions: one small model call per batch (about 1–3 s, a few hundred tokens), 15 s timeout; skipped entirely for Chinese-only questions. Results are cached in memory (up to 64 cards), so identical questions never cost twice.
 - Fail-open everywhere: missing model, timeout, invalid output, label mismatch → original text.
 
-## Voice
+## Copy and localization
 
-Approval copy uses the built-in "fat fish" persona on purpose. To change it, edit the template strings in
-`approvalDisplayText()` in [`lib/index.js`](lib/index.js) — it is a local template, no model call involved.
+All user-visible copy lives in [`locale/zh.json`](locale/zh.json) and [`locale/en.json`](locale/en.json); the code only fills placeholders. A missing key falls back to English, and a key missing from both locales drops the sentence rather than printing `{placeholder}`. Change the wording by editing those JSON files — no model call, no code change. The two locale files must have identical keys, which the test suite enforces. Copy is neutral (“the agent” / 「助手」) and carries no author-specific persona.
 
 ## Diagnostics
 
@@ -135,6 +139,7 @@ Release steps are in [RELEASING.md](RELEASING.md).
 ## Known limitations
 
 - Text-only cards: colors and font sizes are owned by the built-in approval panel; a true red banner needs a separate client-UI plugin.
+- Command risk detection is heuristic: short aliases are only matched as the first word of each command segment (so `Get-ChildItem C:\rd\x` is not mistaken for `rd`), while long forms (`Remove-Item`, `shutil.rmtree`) match anywhere in the command. Deletes hidden in encoded or nested scripts can still be missed.
 - Shell path extraction is heuristic; it is labeled as such on the card.
 - `read` tools do not normally trigger approvals, so the green note is rarely seen in practice.
 

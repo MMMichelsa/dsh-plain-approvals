@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.0.2
+
+- Neutral copy: removed the hardcoded "fat fish" persona (本鱼 / "this fish") from all cards;
+  every template now lives in `locale/zh.json` and `locale/en.json` (identical key sets, enforced by tests),
+  missing keys fall back to English, and the build marker follows `package.json`.
+- Fixed English grammar in the mode clauses (`It widen this one …` → `The agent wants to widen this one …`).
+- Split the single "high risk" class into **write** (`⚠️ 会写入文件`, e.g. `write`/`edit`, `Set-Content`,
+  `Out-File`, `> file` redirects) and **destroy** (`🔴 高危操作`, e.g. `Remove-Item`/`rm`/`del`/`rd`,
+  `git clean`, `git reset --hard`, `git checkout --`, `shutil.rmtree`, `os.remove`), so plain file writes
+  are no longer reported as destructive and the previously missed destructive commands are now flagged.
+- Short command aliases are only matched as the first word of each command segment, so paths like
+  `C:\rd\notes.txt` are no longer mistaken for the `rd` command; `2>&1` is no longer treated as a redirect.
+- Path fallback: when tool arguments are unavailable, paths are extracted from the approval note itself;
+  redirect targets (`> log.txt`) are extracted; commands that name no path say so explicitly.
+- Question rewrites are cached by card content (LRU, 64 entries): identical cards never pay tokens twice.
+- Test suite expanded from 21 to 32 cases covering the classification table, grammar, locale parity,
+  path fallbacks, and the rewrite cache.
+
 ## 1.0.1
 
 - Corrected the GitHub owner in install instructions (`MMMichelsa`).

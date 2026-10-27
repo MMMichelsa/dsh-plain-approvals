@@ -24,7 +24,7 @@ dsh plugin --profile web add github:MMMichelsa/dsh-plain-approvals
 固定版本安装（推荐，标签发布后可用）：
 
 ```bash
-dsh plugin --profile web add github:MMMichelsa/dsh-plain-approvals#v1.0.1
+dsh plugin --profile web add github:MMMichelsa/dsh-plain-approvals#v1.0.2
 ```
 
 > 把 `web` 换成你实际的 profile 名（桌面版通常是 `desktop`）。安装需要网络，pnpm 会从 GitHub 拉取仓库。
@@ -49,12 +49,14 @@ dsh plugin --profile <profile> add link:<本仓库的绝对路径>
 ```text
 原始：允许本次操作使用 danger-full-access 权限：写 profile 配置
 
-改后：⚠️ 高危操作，请确认！本鱼要把「edit」这一次操作放宽到 danger-full-access 权限
-     （沙箱几乎完全关闭：可以读写这台电脑上的任意文件……），它会改动或删除：
-     C:\Users\你\.dsh\profiles\desktop\cordis.patch.yml。
-     只对这一次有效，批准了就收不回；拿不准就点拒绝，本鱼会停下解释，不会绕道。
+改后：⚠️ 会写入文件，请确认。助手要把「write」这一次调用放宽到 danger-full-access 权限
+     （沙箱几乎完全关闭：可以读写这台电脑上的任意文件、运行任意系统命令、访问网络），
+     并会写入：C:\Users\你\.dsh\profiles\desktop\cordis.patch.yml。
+     授权只对这一次有效，批准后无法撤回；拿不准就拒绝，助手会停下来解释，不会绕开。
      理由：写 profile 配置。
 ```
+
+删除 / 覆盖类操作会换成更醒目的 🔴 高危提示，并列出会被删除或覆盖的路径。
 
 ```text
 原始提问：Which sandbox mode should the retry use?（选项 label 为 workspace-write / danger-full-access）
@@ -66,9 +68,10 @@ dsh plugin --profile <profile> add link:<本仓库的绝对路径>
 
 | 界面 | 原始样子 | 改后 |
 |---|---|---|
-| 读取类审批（罕见） | `允许本次操作使用 read-only 权限：…` | `🟢 读取操作：本鱼只是想读 <路径>，不会改动任何文件。…` |
-| 写 / 改 / 删类审批 | `允许本次操作使用 danger-full-access 权限：…` | `⚠️ 高危操作，请确认！…它会改动或删除：<路径清单>。…` |
-| 命令类审批（未发现删除/覆盖） | 技术化说明 | `⚙️ 需要你批准：…没发现明显的删除/覆盖指令，但命令仍可能有副作用…` |
+| 读取类审批（罕见） | `允许本次操作使用 read-only 权限：…` | `🟢 读取操作：这次只是读取 <路径>，不会改动任何文件。…` |
+| 写入类审批 | `允许本次操作使用 danger-full-access 权限：…` | `⚠️ 会写入文件，请确认。…并会写入：<路径清单>。…` |
+| 删除 / 覆盖类审批 | 同上 | `🔴 高危操作，请确认！…它会删除或覆盖：<路径清单>。…` |
+| 命令类审批（未发现删除/覆盖） | 技术化说明 | `⚙️ 需要你批准：…没有发现明显的删除或覆盖指令，但命令仍可能有副作用…` |
 | 其它审批 | 工具自带说明 | `【需要你批准】…` |
 | 模型提问卡片 | 模型原话（可能是英文或术语） | 改写成通俗中文；**选项 label 原样保留**，描述里补 label 的中文解释 |
 
@@ -77,12 +80,14 @@ dsh plugin --profile <profile> add link:<本仓库的绝对路径>
 | 分类 | 依据 | 展示 |
 |---|---|---|
 | 读取 | 工具名属于 `read` / `read_image` / `glob` / `grep` / `web_fetch` 等 | `🟢` 只读提示，永不出现高危警告 |
-| 高危 | `write` / `edit` / 删除类工具；或命令里出现 `Remove-Item`、`rm`、`del`、`Move-Item`、`Set-Content`、输出重定向等 | `⚠️ 高危操作，请确认` + 路径清单 |
-| 其它 | 未匹配删除/覆盖模式的命令；未知工具 | `⚙️` 中性提示 |
+| 写入 | `write` / `edit` / `apply_patch` / `str_replace_editor`；或命令首词是 `Set-Content` / `Add-Content` / `Out-File` / `Copy-Item` / `Move-Item` / `New-Item` / `tee` 等，或含 `> file` 输出重定向 | `⚠️ 会写入文件` + 路径清单 |
+| 删除 | `delete_file` / `remove_file` 等；或命令首词是 `rm` / `del` / `rd` / `ri` / `rmdir` / `Remove-Item` / `Clear-Content` 等；或 `git clean` / `git reset --hard` / `git checkout --`；或脚本内 `shutil.rmtree` / `os.remove` | `🔴 高危操作` + 路径清单 |
+| 其它 | 未匹配上述模式的命令；未知工具 | `⚙️` 中性提示 |
 
 DSH 的审批请求按设计**不携带工具参数**，所以插件在 `tools/pre-execute` 上按 `callId` 缓存每次调用的
 `arguments`（`tools/result` 时清掉，最多 256 条）。`write` / `edit` 的路径取自 `file_path`，精确；
-`pwsh` / `bash` 只能从命令文本里启发式提取，卡片上会明确标注。
+`pwsh` / `bash` 只能从命令文本里启发式提取，卡片上会明确标注。两者都拿不到时，插件会再从审批说明里找一次路径，
+仍找不到就明说「没能确定具体路径」。
 
 ## 它不改什么
 
@@ -103,7 +108,8 @@ DSH 的审批请求按设计**不携带工具参数**，所以插件在 `tools/p
 ## 成本
 
 - 审批卡片：纯本地模板，**零 token、零延迟**。
-- 提问卡片：每批一次小模型调用（约 1–3 秒、几百 token），超时 15 秒；纯中文问题不调用。
+- 提问卡片：每批一次小模型调用（约 1–3 秒、几百 token），超时 15 秒；纯中文问题不调用；
+  相同内容的卡片命中内存缓存，不再调用模型。
 - 一切 fail-open：取不到模型、超时、输出不合规、label 对不上 → 显示原话。
 
 ## 诊断日志
@@ -118,10 +124,11 @@ DSH 的审批请求按设计**不携带工具参数**，所以插件在 `tools/p
 - 提问文字会发给**当前**模型 provider 做改写（就是产出它的那个 provider），除此之外不外发；
 - 插件自身不发网络请求、不读取凭据。
 
-## 文案风格
+## 文案与语言包
 
-审批文案使用内置的「大肥鱼」口吻（本鱼…），这是刻意的风格选择；不喜欢可以直接改
-[`lib/index.js`](lib/index.js) 里 `approvalDisplayText()` 的模板字符串，纯本地模板，不调模型。
+所有展示文案都在 [`locale/zh.json`](locale/zh.json) 和 [`locale/en.json`](locale/en.json)，代码只负责填占位符；
+某个 key 缺失时回落到英文，两条都没有就少说一句，不会显示 `{placeholder}`。想换语气直接改 JSON，不调模型、不改代码。
+中英 key 必须一一对应，有测试守着。文案默认中性（「助手」/「the agent」），不带作者的个人口吻。
 
 ## 开发
 
@@ -142,7 +149,10 @@ DSH 沙箱内 `node --test` 无法拉起子进程，所以测试是一个直接�
 ## 已知限制
 
 - 纯文本卡片：颜色和字号由内置审批面板的 CSS 决定，真正的红底大字需要另做客户端 UI 插件；
+- 命令识别是启发式的：短别名只看每条命令的第一个词（`Get-ChildItem C:\rd\x` 不会被误判成 `rd`），
+  长写法（`Remove-Item`、`shutil.rmtree`）出现在命令任意位置都算；被编码或藏在嵌套脚本里的删除仍可能漏判；
 - 命令里的路径是启发式的，卡片上会标注「从命令里提取，可能不全」；
+- 提问改写结果按卡片内容做内存缓存（最多 64 条），相同卡片不会重复花 token；
 - `read` 类操作通常不触发审批，所以绿色提示很少出现。
 
 ## 许可证

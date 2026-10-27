@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import test from 'node:test'
 
 import {
@@ -6,6 +7,7 @@ import {
   applyQuestionRewrites,
   approvalDisplayText,
   buildRewritePrompt,
+  classifyCommand,
   classifyOperation,
   collectArgsPaths,
   decorateApprovalRequest,
@@ -14,14 +16,19 @@ import {
   parseRewrittenArray,
   parseSandboxReason,
   pathsFromCommand,
+  pathsFromText,
   rememberToolCall,
   rewriteQuestions,
 } from '../lib/index.js'
 
-const sandboxRequest = (callId) => ({
+const readLocale = (id) => JSON.parse(readFileSync(new URL(`../locale/${id}.json`, import.meta.url), 'utf8'))
+const ZH = readLocale('zh')
+const EN = readLocale('en')
+
+const sandboxRequest = (callId, mode = 'danger-full-access', justify = '需要读取工作区外的驱动版本信息') => ({
   toolName: 'pwsh',
   ...(callId === undefined ? {} : { callId }),
-  reason: 'escalate sandbox to danger-full-access: 需要读取工作区外的驱动版本信息',
+  reason: `escalate sandbox to ${mode}: ${justify}`,
 })
 
 test('parseSandboxReason: 解析模式与理由', () => {
@@ -32,27 +39,62 @@ test('parseSandboxReason: 解析模式与理由', () => {
   assert.equal(parseSandboxReason(undefined), null)
 })
 
-test('classifyOperation: 读取 / 写改删 / 命令分级', () => {
-  assert.equal(classifyOperation('read', { file_path: 'C:/a.txt' }).kind, 'read')
-  assert.deepEqual(classifyOperation('read', { file_path: 'C:/a.txt' }).paths, ['C:/a.txt'])
+test('classifyOperation: 读取 / 写入 / 删除 / 其它', () => {
+  const read = classifyOperation('read', { file_path: 'C:/a.txt' })
+  assert.equal(read.kind, 'read')
+  assert.deepEqual(read.paths, ['C:/a.txt'])
+  assert.equal(read.pathSource, 'args')
 
   const write = classifyOperation('write', { file_path: 'C:/a.txt', content: 'x' })
-  assert.equal(write.kind, 'high')
+  assert.equal(write.kind, 'write')
   assert.deepEqual(write.paths, ['C:/a.txt'])
 
-  assert.equal(classifyOperation('edit', { file_path: 'C:/a.txt' }).kind, 'high')
+  assert.equal(classifyOperation('edit', { file_path: 'C:/a.txt' }).kind, 'write')
+  assert.equal(classifyOperation('delete_file', { file_path: 'C:/a.txt' }).kind, 'destroy')
   assert.equal(classifyOperation('some-tool', { anything: 1 }).kind, 'neutral')
-
-  const shellDanger = classifyOperation('pwsh', { command: 'Remove-Item C:/tmp/x.txt -Force' })
-  assert.equal(shellDanger.kind, 'high')
-  assert.equal(shellDanger.estimated, true)
-  assert.ok(shellDanger.paths.includes('C:/tmp/x.txt'))
-
-  assert.equal(classifyOperation('pwsh', { command: 'Get-Date' }).kind, 'neutral')
-  assert.equal(classifyOperation('bash', { command: 'rm -rf ./build' }).kind, 'high')
 })
 
-test('collectArgsPaths / pathsFromCommand: 提取路径', () => {
+test('classifyCommand: 删除类命令（含原先漏报的写法）', () => {
+  for (const command of [
+    'Remove-Item C:/tmp/x.txt -Force',
+    'rm -rf ./build',
+    'del /q C:/tmp/a.txt',
+    'ri -Recurse C:/tmp/dir',
+    'rd /s /q C:/tmp/dir',
+    'git clean -fdx',
+    'git reset --hard HEAD~1',
+    'git checkout -- src/app.ts',
+    'python -c "import shutil; shutil.rmtree(\'build\')"',
+    'python -c "import os; os.remove(\'a.txt\')"',
+  ]) {
+    const verdict = classifyCommand(command)
+    assert.equal(verdict, 'destroy', `expected destroy: ${command}`)
+  }
+})
+
+test('classifyCommand: 写入类命令（原先被误判为高危）', () => {
+  for (const command of [
+    'Get-Date > log.txt',
+    'Set-Content -Path C:/a.txt -Value x',
+    "Add-Content C:/a.txt 'x'",
+    'Out-File -FilePath C:/a.txt',
+    'Copy-Item C:/a.txt C:/b.txt',
+    'New-Item -ItemType Directory C:/tmp/new',
+    'Get-ChildItem | Tee-Object C:/a.txt',
+  ]) {
+    assert.equal(classifyCommand(command), 'write', `expected write: ${command}`)
+  }
+})
+
+test('classifyCommand: 不误报路径里的短别名与句柄重定向', () => {
+  assert.equal(classifyCommand('Get-ChildItem C:\\rd\\notes.txt'), 'neutral')
+  assert.equal(classifyCommand('Get-Date 2>&1'), 'neutral')
+  assert.equal(classifyCommand('git status'), 'neutral')
+  assert.equal(classifyCommand('npm test'), 'neutral')
+  assert.equal(classifyCommand(''), 'neutral')
+})
+
+test('collectArgsPaths / pathsFromCommand / pathsFromText: 提取路径', () => {
   assert.deepEqual(collectArgsPaths({ file_path: 'C:/a.txt', other: 'nope' }), ['C:/a.txt'])
   assert.deepEqual(collectArgsPaths({ files: ['C:/a.txt', 'C:/b.txt'] }), ['C:/a.txt', 'C:/b.txt'])
   assert.deepEqual(collectArgsPaths(null), [])
@@ -60,20 +102,25 @@ test('collectArgsPaths / pathsFromCommand: 提取路径', () => {
   const paths = pathsFromCommand('Move-Item "C:/a.txt" C:/b.txt; Remove-Item C:/c/d.txt')
   assert.ok(paths.includes('C:/a.txt'))
   assert.ok(paths.includes('C:/c/d.txt'))
+
+  const fromText = pathsFromText('要改写 C:/Users/me/.dsh/cordis.yml 和 /home/me/.config/app.yml')
+  assert.ok(fromText.includes('C:/Users/me/.dsh/cordis.yml'))
+  assert.ok(fromText.includes('/home/me/.config/app.yml'))
+  assert.deepEqual(pathsFromText('没有路径'), [])
 })
 
-test('approvalDisplayText: 沙箱提权无命令时给中性提示，带模式解释与理由', () => {
+test('approvalDisplayText: 沙箱提权但看不出命令 → 中性提示，带模式解释与理由', () => {
   const text = approvalDisplayText(sandboxRequest())
-  assert.equal(typeof text.en, 'string')
   assert.match(text.zh, /⚙️/)
   assert.match(text.zh, /danger-full-access/)
   assert.match(text.zh, /沙箱几乎完全关闭/)
   assert.match(text.zh, /只对这一次有效/)
   assert.match(text.zh, /需要读取工作区外的驱动版本信息/)
-  assert.match(text.en, /One-shot only/)
+  assert.match(text.en, /Approval needed/)
+  assert.match(text.en, /single request/)
 })
 
-test('approvalDisplayText: 写文件 → 高危红色警告 + 具体路径', () => {
+test('approvalDisplayText: 写文件 → 写入警告 + 具体路径', () => {
   rememberToolCall({ callId: 'call-write', arguments: { file_path: 'C:/tmp/secret.txt', content: 'x' } })
   try {
     const text = approvalDisplayText({
@@ -81,11 +128,12 @@ test('approvalDisplayText: 写文件 → 高危红色警告 + 具体路径', () 
       callId: 'call-write',
       reason: 'escalate sandbox to danger-full-access: 覆写工作区外的配置文件',
     })
-    assert.match(text.zh, /⚠️ 高危操作，请确认/)
+    assert.match(text.zh, /⚠️ 会写入文件/)
     assert.match(text.zh, /C:\/tmp\/secret\.txt/)
     assert.match(text.zh, /覆写工作区外的配置文件/)
-    assert.match(text.en, /HIGH-RISK OPERATION/)
+    assert.match(text.en, /FILE WRITES AHEAD/)
     assert.match(text.en, /C:\/tmp\/secret\.txt/)
+    assert.doesNotMatch(text.zh, /高危操作/)
   } finally {
     forgetToolCall({ callId: 'call-write' })
   }
@@ -99,11 +147,57 @@ test('approvalDisplayText: 删除命令 → 高危 + 命令里提取的路径', 
       callId: 'call-rm',
       reason: 'escalate sandbox to danger-full-access: 清理临时文件',
     })
-    assert.match(text.zh, /⚠️ 高危操作，请确认/)
+    assert.match(text.zh, /🔴 高危操作/)
     assert.match(text.zh, /C:\/tmp\/old\.txt/)
     assert.match(text.zh, /从命令里提取/)
+    assert.match(text.en, /DESTRUCTIVE OPERATION/)
   } finally {
     forgetToolCall({ callId: 'call-rm' })
+  }
+})
+
+test('approvalDisplayText: git clean -fdx 也算高危（原先漏报）', () => {
+  rememberToolCall({ callId: 'call-git', arguments: { command: 'git clean -fdx' } })
+  try {
+    const text = approvalDisplayText({
+      toolName: 'pwsh',
+      callId: 'call-git',
+      reason: 'escalate sandbox to danger-full-access: 清理未跟踪文件',
+    })
+    assert.match(text.zh, /🔴 高危操作/)
+    assert.match(text.zh, /命令里没有写明具体路径/)
+  } finally {
+    forgetToolCall({ callId: 'call-git' })
+  }
+})
+
+test('approvalDisplayText: 重定向目标算写入路径', () => {
+  rememberToolCall({ callId: 'call-redirect', arguments: { command: 'Get-Date > log.txt' } })
+  try {
+    const text = approvalDisplayText({
+      toolName: 'pwsh',
+      callId: 'call-redirect',
+      reason: 'escalate sandbox to workspace-write: 记录时间',
+    })
+    assert.match(text.zh, /log\.txt/)
+    assert.match(text.zh, /从命令里提取/)
+  } finally {
+    forgetToolCall({ callId: 'call-redirect' })
+  }
+})
+
+test('approvalDisplayText: 只写命令 → 写入警告而不是高危（原先误报）', () => {
+  rememberToolCall({ callId: 'call-log', arguments: { command: 'Get-Date > log.txt' } })
+  try {
+    const text = approvalDisplayText({
+      toolName: 'pwsh',
+      callId: 'call-log',
+      reason: 'escalate sandbox to workspace-write: 记录时间',
+    })
+    assert.match(text.zh, /⚠️ 会写入文件/)
+    assert.doesNotMatch(text.zh, /🔴/)
+  } finally {
+    forgetToolCall({ callId: 'call-log' })
   }
 })
 
@@ -117,11 +211,26 @@ test('approvalDisplayText: 读取 → 绿色只读提示，不出现高危警告
     })
     assert.match(text.zh, /🟢 读取操作/)
     assert.match(text.zh, /C:\/logs\/app\.log/)
-    assert.doesNotMatch(text.zh, /高危操作/)
+    assert.doesNotMatch(text.zh, /高危|会写入/)
     assert.match(text.en, /Read-only operation/)
   } finally {
     forgetToolCall({ callId: 'call-read' })
   }
+})
+
+test('approvalDisplayText: 拿不到工具参数时，从审批说明里兜底找路径', () => {
+  const text = approvalDisplayText({
+    toolName: 'write',
+    reason: 'escalate sandbox to danger-full-access: 覆写 C:/Users/me/.dsh/profiles/desktop/cordis.patch.yml',
+  })
+  assert.match(text.zh, /cordis\.patch\.yml/)
+  assert.match(text.zh, /从审批说明里提取/)
+})
+
+test('approvalDisplayText: 既没有参数也没有路径时给出明确占位', () => {
+  const text = approvalDisplayText({ toolName: 'write', reason: 'escalate sandbox to danger-full-access: 写入文件' })
+  assert.match(text.zh, /没能从参数里确定具体路径/)
+  assert.match(text.en, /no concrete path/)
 })
 
 test('approvalDisplayText: 非沙箱审批保留原始说明', () => {
@@ -132,8 +241,35 @@ test('approvalDisplayText: 非沙箱审批保留原始说明', () => {
   })
   assert.match(text.zh, /需要你批准/)
   assert.match(text.zh, /允许该工具运行/)
-  assert.equal(typeof text.en, 'string')
   assert.match(text.en, /Allow the tool to run/)
+})
+
+test('文案：不再出现人设词，英文不再有 widen 语法错', () => {
+  const samples = [
+    approvalDisplayText(sandboxRequest()),
+    approvalDisplayText({
+      toolName: 'write',
+      callId: 'x-none',
+      reason: 'escalate sandbox to danger-full-access: 写入',
+    }),
+    approvalDisplayText({ toolName: 'some-tool', reason: 'needs approval' }),
+  ]
+  for (const text of samples) {
+    for (const value of [text.zh, text.en]) {
+      assert.doesNotMatch(value, /本鱼/)
+      assert.doesNotMatch(value, /this fish/i)
+      assert.doesNotMatch(value, /\bIt widen\b|\bThis widen\b|\bwiden this one ".*" call to .*\)?, and it will change/)
+      assert.doesNotMatch(value, /\{[a-z_]+\}/, 'unfilled placeholder')
+    }
+  }
+})
+
+test('语言包：中英 key 一致，模式解释齐全', () => {
+  assert.deepEqual(Object.keys(ZH).sort(), Object.keys(EN).sort())
+  for (const mode of ['read-only', 'workspace-write', 'danger-full-access', 'fallback']) {
+    assert.equal(typeof ZH[`mode.${mode}`], 'string')
+    assert.equal(typeof EN[`mode.${mode}`], 'string')
+  }
 })
 
 test('decorateApprovalRequest: 只改 displayReason，不动 reason', () => {
@@ -141,7 +277,8 @@ test('decorateApprovalRequest: 只改 displayReason，不动 reason', () => {
   const before = request.reason
   assert.equal(decorateApprovalRequest(request), true)
   assert.equal(request.reason, before)
-  assert.equal(request.displayReason.en.includes('One-shot only'), true)
+  assert.equal(typeof request.displayReason.zh, 'string')
+  assert.equal(typeof request.displayReason.en, 'string')
 })
 
 test('applyQuestionRewrites: 合法的改写被应用，label 保持原样', () => {
@@ -177,12 +314,8 @@ test('applyQuestionRewrites: 合法的改写被应用，label 保持原样', () 
 })
 
 test('applyQuestionRewrites: label / id / 数量对不上时整体拒绝', () => {
-  const questions = [
-    { id: 'q1', question: 'Q?', options: [{ label: 'A' }, { label: 'B' }] },
-  ]
-  const badLabel = [
-    { id: 'q1', question: '问题？', options: [{ label: 'a' }, { label: 'B' }] },
-  ]
+  const questions = [{ id: 'q1', question: 'Q?', options: [{ label: 'A' }, { label: 'B' }] }]
+  const badLabel = [{ id: 'q1', question: '问题？', options: [{ label: 'a' }, { label: 'B' }] }]
   const badId = [{ id: 'q2', question: '问题？', options: [{ label: 'A' }, { label: 'B' }] }]
   const badCount = [{ id: 'q1', question: '问题？', options: [{ label: 'A' }] }]
   assert.equal(applyQuestionRewrites(questions, badLabel), false)
@@ -287,6 +420,21 @@ test('rewriteQuestions: 成功时改写并保留 label', async () => {
   assert.equal(state.streams.length, 1)
 })
 
+test('rewriteQuestions: 相同内容第二次命中缓存，不再调用模型', async () => {
+  const answer = JSON.stringify([{ id: 'qc', question: '缓存命中测试？' }])
+  const { ctx, state } = fakeCtx([
+    { type: 'text-delta', text: answer },
+    { type: 'finish', reason: { kind: 'stop' } },
+  ])
+  const make = () => ({ agent: { options: {} }, questions: [{ id: 'qc', question: 'Cache hit test?' }] })
+  const first = make()
+  const second = make()
+  assert.equal(await rewriteQuestions(ctx, first), true)
+  assert.equal(await rewriteQuestions(ctx, second), true)
+  assert.equal(state.streams.length, 1)
+  assert.equal(second.questions[0].question, '缓存命中测试？')
+})
+
 test('rewriteQuestions: 只读的问题对象也能改写（克隆后替换数组）', async () => {
   const answer = JSON.stringify([{ id: 'q1', question: '请继续？' }])
   const { ctx } = fakeCtx([
@@ -297,7 +445,6 @@ test('rewriteQuestions: 只读的问题对象也能改写（克隆后替换数�
   const request = { agent: { options: {} }, questions: frozenQuestions }
   assert.equal(await rewriteQuestions(ctx, request), true)
   assert.equal(request.questions[0].question, '请继续？')
-  // 原数组保持只读且未被改动
   assert.equal(frozenQuestions[0].question, 'Proceed?')
   assert.equal(Object.isFrozen(frozenQuestions[0]), true)
 })
@@ -343,10 +490,9 @@ test('rewriteQuestions: 混合语言时只交非中文的问题给模型', async
 })
 
 test('rewriteQuestions: 无 agent / 模型报错 / 输出不合法时保持原样', async () => {
-  const questions = [{ id: 'q1', question: 'Continue?' }]
   const { ctx } = fakeCtx([{ type: 'finish', reason: { kind: 'error' } }])
 
-  const noAgent = { questions }
+  const noAgent = { questions: [{ id: 'q1', question: 'Continue?' }] }
   assert.equal(await rewriteQuestions(ctx, noAgent), false)
 
   const errorCtx = fakeCtx([{ type: 'finish', reason: { kind: 'error' } }])
@@ -389,7 +535,7 @@ test('apply: 注册四个监听器，pre-execute 缓存参数供审批分级使�
   }
   const outcome = byEvent('approval/request').listener(request, () => 'unavailable')
   assert.equal(outcome, 'unavailable')
-  assert.match(request.displayReason.zh, /⚠️ 高危操作，请确认/)
+  assert.match(request.displayReason.zh, /⚠️ 会写入文件/)
   assert.match(request.displayReason.zh, /C:\/tmp\/applied\.txt/)
 
   byEvent('tools/result').listener(exec)
