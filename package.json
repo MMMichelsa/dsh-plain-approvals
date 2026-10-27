@@ -1,0 +1,48 @@
+{
+  "name": "dsh-plain-approvals",
+  "version": "1.0.1",
+  "description": "DSH plugin: plain-language approval cards with risk levels and file paths, plus plain-language question rewriting",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/MMMichelsa/dsh-plain-approvals.git"
+  },
+  "homepage": "https://github.com/MMMichelsa/dsh-plain-approvals",
+  "bugs": {
+    "url": "https://github.com/MMMichelsa/dsh-plain-approvals/issues"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "approval",
+    "permissions",
+    "accessibility",
+    "plain-language"
+  ],
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "README.md",
+    "README.zh.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node test/index.test.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "author": "Michelsa",
+  "license": "MIT"
+}
