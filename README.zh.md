@@ -34,7 +34,7 @@ dsh plugin --profile desktop add github:MMMichelsa/dsh-plain-approvals
 固定版本安装（推荐，标签发布后可用）：
 
 ```bash
-dsh plugin --profile desktop add github:MMMichelsa/dsh-plain-approvals#v1.1.0
+dsh plugin --profile desktop add github:MMMichelsa/dsh-plain-approvals#v1.1.1
 ```
 
 > 如果你用的不是桌面版（例如 CLI/TUI 版），把 `desktop` 换成你自己的 profile 名。安装需要网络，pnpm 会从 GitHub 拉取仓库。

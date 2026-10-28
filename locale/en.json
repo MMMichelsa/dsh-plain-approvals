@@ -15,6 +15,7 @@
   "paths_reason": "{paths} (extracted from the approval note; may be incomplete)",
   "nested": " (the command runs another script inside it; that script was inspected as well.)",
   "nested_truncated": " (the nesting went deeper than this plugin inspects; please read the innermost layers yourself.)",
+  "nested_too_long": " (the command is very long; only the beginning was analysed — please read the rest yourself.)",
   "mode.read-only": "read-only; no file writes are allowed",
   "mode.workspace-write": "writes become possible inside this workspace and temporary areas; everything else stays read-only",
   "mode.danger-full-access": "the sandbox is essentially lifted: any file on this machine can be read or written, any system command may run, and network access is allowed",

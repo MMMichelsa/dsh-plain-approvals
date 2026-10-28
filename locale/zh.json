@@ -15,6 +15,7 @@
   "paths_reason": "{paths}（从审批说明里提取，可能不全）",
   "nested": "（这条命令里还套了一层命令，里面也一并看过。）",
   "nested_truncated": "（套娃太深，后面几层没看完，请自己再看一眼。）",
+  "nested_too_long": "（命令太长，只分析了前面一部分，后面请自己再看一眼。）",
   "mode.read-only": "只读，不允许写任何文件",
   "mode.workspace-write": "可以写入当前工作区和临时目录，其他位置仍然只读",
   "mode.danger-full-access": "沙箱几乎完全关闭：可以读写这台电脑上的任意文件、运行任意系统命令、访问网络",

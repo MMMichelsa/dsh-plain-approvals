@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.1.1
+
+- **Truncation now says why.** `classifyCommandDeep` returns `truncatedBy` (`depth` / `width` /
+  `length`), and the card picks the matching sentence. A 25 KB flat command is no longer described as
+  "the nesting went deeper than this plugin inspects" — it says the command is long instead.
+- New copy for the length case (`nested_too_long`, zh + en), so the two situations cannot be confused.
+- **Honesty fix found while writing the test:** deep `bash -c "…\"…"` chains lose their quote
+  structure after unescaping, so the inner script could not be parsed and the plugin silently
+  concluded "nothing dangerous found". The parser now reports `complete: false` for an unterminated
+  quote and the card admits the inner layers were not read (`depth`).
+- Tests: 46 → 50 (flat-long vs. real nesting vs. encoded nesting vs. width exhaustion).
+
 ## 1.1.0
 
 **Install fix — why this release exists.** Every documented install command pointed at

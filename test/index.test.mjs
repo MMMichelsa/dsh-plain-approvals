@@ -774,3 +774,61 @@ test('日志：写不进去也不许抛错（日志永远不是功能的一部�
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+/* ── v1.1.1：没看完要说清「为什么没看完」 ───────────────────────────────── */
+
+test('截断原因：扁平超长命令说「太长」，不冒充「套娃太深」', () => {
+  const flat = 'echo ok; '.repeat(3000)
+  const result = classifyCommandDeep(flat)
+  assert.equal(result.truncated, true)
+  assert.deepEqual(result.truncatedBy, ['length'])
+  assert.equal(result.depth, 0, '这条命令根本没有套娃')
+
+  rememberToolCall({ callId: 'flat-long', name: 'pwsh', arguments: { command: flat } })
+  const card = approvalDisplayText({
+    toolName: 'pwsh',
+    callId: 'flat-long',
+    reason: 'escalate sandbox to danger-full-access: 长命令',
+  })
+  assert.match(card.zh, /命令太长/)
+  assert.doesNotMatch(card.zh, /套娃太深/, '没有套娃就不能说套娃')
+  assert.match(card.en, /very long/)
+  forgetToolCall({ callId: 'flat-long' })
+})
+
+test('截断原因：多级转义把结构打散时，也必须承认「没看完」', () => {
+  // 20 层 `bash -c "…\"…\"…"` 会把引号结构逐层打散：解析不出完整子脚本。
+  // 这种情况绝不能静默 —— 必须标成「层数上限」，让用户知道要自己看。
+  let deep = 'rm -rf ./x'
+  for (let index = 0; index < 20; index += 1) deep = `bash -c "${deep.replace(/"/g, '\\"')}"`
+  const result = classifyCommandDeep(deep)
+  assert.equal(result.truncated, true, '解析不完整就必须标注')
+  assert.ok(result.truncatedBy.includes('depth'), JSON.stringify(result.truncatedBy))
+})
+
+test('截断原因：真套娃才说「套娃太深」（编码套娃最典型）', () => {
+  // base64 把下一层藏起来，只能逐层解开——这才真的会撞上深度上限
+  let script = 'Remove-Item ./a.txt'
+  for (let index = 0; index < 4; index += 1) script = `powershell -EncodedCommand ${utf16Base64(script)}`
+  const result = classifyCommandDeep(script)
+  assert.equal(result.truncated, true)
+  assert.ok(result.truncatedBy.includes('depth'), JSON.stringify(result.truncatedBy))
+
+  rememberToolCall({ callId: 'deep-encoded', name: 'pwsh', arguments: { command: script } })
+  const card = approvalDisplayText({
+    toolName: 'pwsh',
+    callId: 'deep-encoded',
+    reason: 'escalate sandbox to danger-full-access: 编码套娃',
+  })
+  assert.match(card.zh, /套娃太深/)
+  assert.doesNotMatch(card.zh, /命令太长/)
+  forgetToolCall({ callId: 'deep-encoded' })
+})
+
+test('截断原因：一层里塞太多，记成「展开次数用尽」', () => {
+  const parts = []
+  for (let index = 0; index < 40; index += 1) parts.push(`bash -c "echo ${index}"`)
+  const result = classifyCommandDeep(parts.join('; '))
+  assert.equal(result.truncated, true)
+  assert.ok(result.truncatedBy.includes('width'), JSON.stringify(result.truncatedBy))
+})

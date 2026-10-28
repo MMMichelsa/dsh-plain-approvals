@@ -34,7 +34,7 @@ dsh plugin --profile desktop add github:MMMichelsa/dsh-plain-approvals
 Pinned version (recommended once the tag exists):
 
 ```bash
-dsh plugin --profile desktop add github:MMMichelsa/dsh-plain-approvals#v1.1.0
+dsh plugin --profile desktop add github:MMMichelsa/dsh-plain-approvals#v1.1.1
 ```
 
 > Not on the desktop build (CLI/TUI)? Replace `desktop` with your own profile name. Installation needs network access: pnpm fetches the repository from GitHub.
