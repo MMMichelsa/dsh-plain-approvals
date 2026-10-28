@@ -10,16 +10,17 @@ This repository ships to users through GitHub (pnpm `github:` spec); there is no
 5. Tag and push the tag:
 
    ```bash
-   git tag v1.0.3
-   git push origin v1.0.3
+   git tag v1.1.0
+   git push origin v1.1.0
    ```
 
 6. Create a GitHub Release for the tag, pasting the CHANGELOG entry as notes.
    Pinned installs then work:
 
    ```bash
-   dsh plugin --profile web add github:MMMichelsa/dsh-plain-approvals#v1.0.3
+   dsh plugin --profile desktop add github:MMMichelsa/dsh-plain-approvals#v1.1.0
    ```
 
 Keep the layout intact: the package entry must stay at `lib/index.js`, tests at `test/index.test.mjs`,
-and the bundle patch at `cordis.patch.yml` (declared in `package.json` under `dsh.bundle.patch`).
+the bundle patch at `cordis.patch.yml` (declared in `package.json` under `dsh.bundle.patch`), and the
+one-click installers at `install.bat` / `install.mjs` in the repository root.

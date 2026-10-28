@@ -1,13 +1,15 @@
 # Bundle patch: mounts dsh-plain-approvals into a DSH profile.
 #
-# Install from GitHub:
-#   dsh plugin --profile web add github:MMMichelsa/dsh-plain-approvals
+# Install from GitHub (desktop client uses the `desktop` profile):
+#   dsh plugin --profile desktop add github:MMMichelsa/dsh-plain-approvals
+#
+# One-click: install.bat (Windows) or `node install.mjs` (any platform).
 #
 # Install from a local checkout:
-#   dsh plugin --profile <profile> add link:<absolute path to this repo>
+#   dsh plugin --profile desktop add link:<absolute path to this repo>
 #
 # Install from a tarball or git spec:
-#   dsh plugin --profile <profile> add <package-or-git-spec>
+#   dsh plugin --profile desktop add <package-or-git-spec>
 
 - insert:
     - id: dsh-plain-approvals

@@ -13,35 +13,45 @@ Everything is fail-open: if rewriting fails for any reason, the original text is
 
 ## Install
 
-Install from GitHub:
+> **The profile matters.** The desktop client loads the `desktop` profile. Installing into `web` (or any other name) leaves the desktop build unable to see the plugin — the most common "installed but nothing happens" case.
+
+### One-click install (recommended)
+
+- **Windows**: double-click `install.bat` in this folder.
+- **macOS / Linux**: run `node install.mjs` in this folder.
+
+The script finds Node itself (PATH, the usual install dirs, and DSH's bundled runtime), finds the DSH CLI itself, and installs into `desktop` by default; it then prints the next step (restart DSH).
+No environment variables to configure first, spaces and non-ASCII directories in the path are fine, and `package.json` / `pnpm-lock.yaml` are backed up before anything changes.
+
+Pick another profile with `install.bat --profile <name>` or `node install.mjs --profile <name>`.
+
+### Manual install
 
 ```bash
-dsh plugin --profile web add github:MMMichelsa/dsh-plain-approvals
+dsh plugin --profile desktop add github:MMMichelsa/dsh-plain-approvals
 ```
-
-Restart the Harness service afterwards.
 
 Pinned version (recommended once the tag exists):
 
 ```bash
-dsh plugin --profile web add github:MMMichelsa/dsh-plain-approvals#v1.0.3
+dsh plugin --profile desktop add github:MMMichelsa/dsh-plain-approvals#v1.1.0
 ```
 
-> Replace `web` with your own profile name (desktop builds usually use `desktop`). Installation needs network access: pnpm fetches the repository from GitHub.
+> Not on the desktop build (CLI/TUI)? Replace `desktop` with your own profile name. Installation needs network access: pnpm fetches the repository from GitHub.
 >
 > If `git` is not installed (pnpm reports a git error), install from the tarball instead:
 >
 > ```powershell
-> dsh plugin --profile web add https://codeload.github.com/MMMichelsa/dsh-plain-approvals/tar.gz/refs/heads/main
+> dsh plugin --profile desktop add https://codeload.github.com/MMMichelsa/dsh-plain-approvals/tar.gz/refs/heads/main
 > ```
 
 Confirm `dsh-plain-approvals` ends up in the profile's `dsh.profile.bundles`.
-Uninstall with `dsh plugin --profile web remove dsh-plain-approvals` and remove it from `dsh.profile.bundles`.
+Uninstall with `dsh plugin --profile desktop remove dsh-plain-approvals` and remove it from `dsh.profile.bundles`.
 
 Local development (link a checkout):
 
 ```powershell
-dsh plugin --profile <profile> add link:<absolute path to this repo>
+dsh plugin --profile desktop add link:<absolute path to this repo>
 ```
 
 ## What it looks like
@@ -57,6 +67,11 @@ After:  ⚠️ 会写入文件，请确认。助手要把「write」这一次调
 ```
 
 Delete / overwrite operations get a louder 🔴 card with the exact paths they will remove or overwrite.
+
+Commands that wrap another script are unwrapped too: `bash -c "rm -rf x"`, `sh -c …`, `python -c …`,
+`cmd /c …`, `pwsh -Command …`, and even `powershell -EncodedCommand <base64>` is decoded and read.
+Up to three levels deep; when the budget runs out the card says so instead of pretending it saw
+everything — and a deeply nested command can never hang the host.
 English cards carry the same information, e.g. `🔴 DESTRUCTIVE OPERATION — please confirm. The agent wants to widen this one "pwsh" call to danger-full-access (…), and it will delete or overwrite: …`.
 
 ```text

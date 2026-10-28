@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import test from 'node:test'
 
 import {
@@ -7,10 +9,15 @@ import {
   applyQuestionRewrites,
   approvalDisplayText,
   buildRewritePrompt,
+  cacheStats,
   classifyCommand,
+  classifyCommandDeep,
   classifyOperation,
   collectArgsPaths,
+  debugLog,
   decorateApprovalRequest,
+  findNestedScripts,
+  flushLog,
   forgetToolCall,
   needsRewrite,
   parseRewrittenArray,
@@ -120,7 +127,7 @@ test('pathsFromCommand: 只从会改动文件的命令段取路径，且拒收�
 })
 
 test('approvalDisplayText: 删除卡片不再列出子表达式伪路径', () => {
-  rememberToolCall({ callId: 'call-junk', arguments: { command: 'Remove-Item .\\old.txt; "exists=$(Test-Path .\\old.txt)"' } })
+  rememberToolCall({ callId: 'call-junk', name: 'pwsh', arguments: { command: 'Remove-Item .\\old.txt; "exists=$(Test-Path .\\old.txt)"' } })
   try {
     const text = approvalDisplayText({
       toolName: 'pwsh',
@@ -148,7 +155,7 @@ test('approvalDisplayText: 沙箱提权但看不出命令 → 中性提示，带
 })
 
 test('approvalDisplayText: 写文件 → 写入警告 + 具体路径', () => {
-  rememberToolCall({ callId: 'call-write', arguments: { file_path: 'C:/tmp/secret.txt', content: 'x' } })
+  rememberToolCall({ callId: 'call-write', name: 'write', arguments: { file_path: 'C:/tmp/secret.txt', content: 'x' } })
   try {
     const text = approvalDisplayText({
       toolName: 'write',
@@ -167,7 +174,7 @@ test('approvalDisplayText: 写文件 → 写入警告 + 具体路径', () => {
 })
 
 test('approvalDisplayText: 删除命令 → 高危 + 命令里提取的路径', () => {
-  rememberToolCall({ callId: 'call-rm', arguments: { command: 'Remove-Item C:/tmp/old.txt -Force' } })
+  rememberToolCall({ callId: 'call-rm', name: 'pwsh', arguments: { command: 'Remove-Item C:/tmp/old.txt -Force' } })
   try {
     const text = approvalDisplayText({
       toolName: 'pwsh',
@@ -184,7 +191,7 @@ test('approvalDisplayText: 删除命令 → 高危 + 命令里提取的路径', 
 })
 
 test('approvalDisplayText: git clean -fdx 也算高危（原先漏报）', () => {
-  rememberToolCall({ callId: 'call-git', arguments: { command: 'git clean -fdx' } })
+  rememberToolCall({ callId: 'call-git', name: 'pwsh', arguments: { command: 'git clean -fdx' } })
   try {
     const text = approvalDisplayText({
       toolName: 'pwsh',
@@ -199,7 +206,7 @@ test('approvalDisplayText: git clean -fdx 也算高危（原先漏报）', () =>
 })
 
 test('approvalDisplayText: 重定向目标算写入路径', () => {
-  rememberToolCall({ callId: 'call-redirect', arguments: { command: 'Get-Date > log.txt' } })
+  rememberToolCall({ callId: 'call-redirect', name: 'pwsh', arguments: { command: 'Get-Date > log.txt' } })
   try {
     const text = approvalDisplayText({
       toolName: 'pwsh',
@@ -214,7 +221,7 @@ test('approvalDisplayText: 重定向目标算写入路径', () => {
 })
 
 test('approvalDisplayText: 只写命令 → 写入警告而不是高危（原先误报）', () => {
-  rememberToolCall({ callId: 'call-log', arguments: { command: 'Get-Date > log.txt' } })
+  rememberToolCall({ callId: 'call-log', name: 'pwsh', arguments: { command: 'Get-Date > log.txt' } })
   try {
     const text = approvalDisplayText({
       toolName: 'pwsh',
@@ -229,7 +236,7 @@ test('approvalDisplayText: 只写命令 → 写入警告而不是高危（原先
 })
 
 test('approvalDisplayText: 读取 → 绿色只读提示，不出现高危警告', () => {
-  rememberToolCall({ callId: 'call-read', arguments: { file_path: 'C:/logs/app.log' } })
+  rememberToolCall({ callId: 'call-read', name: 'read', arguments: { file_path: 'C:/logs/app.log' } })
   try {
     const text = approvalDisplayText({
       toolName: 'read',
@@ -574,4 +581,196 @@ test('apply: 注册四个监听器，pre-execute 缓存参数供审批分级使�
   byEvent('approval/request').listener(afterCleanup, () => 'unavailable')
   assert.doesNotMatch(afterCleanup.displayReason.zh, /C:\/tmp\/applied\.txt/)
   assert.match(afterCleanup.displayReason.zh, /没能从参数里确定具体路径/)
+})
+
+/* ── v1.1.0：套娃命令（不直接删文件，而是用 bash -c / python -c 套一层） ──── */
+
+const utf16Base64 = (script) => Buffer.from(script, 'utf16le').toString('base64')
+
+test('套娃：findNestedScripts 认出各种「把字符串当脚本再执行」的写法', () => {
+  assert.deepEqual(findNestedScripts('bash -c "rm -rf ./build"'), [{ script: 'rm -rf ./build', encoded: false }])
+  assert.deepEqual(findNestedScripts("sh -c 'rm -rf /tmp/out'"), [{ script: 'rm -rf /tmp/out', encoded: false }])
+  assert.deepEqual(findNestedScripts('cmd /c "del C:/tmp/a.txt"'), [{ script: 'del C:/tmp/a.txt', encoded: false }])
+  assert.equal(
+    findNestedScripts('python -c "import shutil; shutil.rmtree(\'dist\')"')[0].script,
+    "import shutil; shutil.rmtree('dist')",
+  )
+  assert.equal(
+    findNestedScripts('pwsh -NoProfile -Command "Remove-Item ./logs -Recurse"')[0].script,
+    'Remove-Item ./logs -Recurse',
+  )
+
+  const encoded = findNestedScripts(`powershell -EncodedCommand ${utf16Base64('Remove-Item C:/x/y.txt')}`)[0]
+  assert.equal(encoded.encoded, true)
+  assert.equal(Buffer.from(encoded.script, 'base64').toString('utf16le'), 'Remove-Item C:/x/y.txt')
+
+  // 不是「执行代码」的开关，不该被当成套娃
+  assert.deepEqual(findNestedScripts('bash -x ./script.sh'), [])
+  assert.deepEqual(findNestedScripts('python script.py'), [])
+  assert.deepEqual(findNestedScripts('node --version'), [])
+})
+
+test('套娃：删除 / 覆盖藏在内层也会被抓住', () => {
+  const cases = [
+    'bash -c "rm -rf ./build"',
+    "sh -c 'rm -rf /tmp/out'",
+    'cmd /c "del C:/tmp/a.txt"',
+    `python -c "import shutil; shutil.rmtree('dist')"`,
+    'pwsh -NoProfile -ExecutionPolicy Bypass -Command "Remove-Item ./logs -Recurse -Force"',
+    `powershell -EncodedCommand ${utf16Base64('Remove-Item C:/x/y.txt -Force')}`,
+  ]
+  for (const command of cases) {
+    const result = classifyCommandDeep(command)
+    assert.equal(result.kind, 'destroy', `应判为高危：${command}`)
+    assert.equal(result.truncated, false, `不该截断：${command}`)
+    assert.ok(result.depth >= 1, `应至少展开一层：${command}`)
+  }
+})
+
+test('套娃：写入算写入；无害套娃不误报，但仍记层数', () => {
+  const write = classifyCommandDeep('bash -c "echo hi > ./out.txt"')
+  assert.equal(write.kind, 'write')
+  assert.ok(write.paths.includes('./out.txt'), JSON.stringify(write.paths))
+
+  const harmless = classifyCommandDeep('bash -c "echo hi"')
+  assert.equal(harmless.kind, 'neutral')
+  assert.equal(harmless.depth, 1, '看过一层，只是里面没有危险动作')
+})
+
+test('套娃：两层也能追到最里面', () => {
+  const result = classifyCommandDeep(`bash -c "pwsh -Command 'Remove-Item ./a.txt'"`)
+  assert.equal(result.kind, 'destroy')
+  assert.equal(result.depth, 2)
+})
+
+test('套娃：无限套娃必须浅尝辄止（不能死循环）', () => {
+  let command = 'rm -rf ./x'
+  for (let index = 0; index < 200; index += 1) command = `bash -c "${command.replace(/"/g, '\\"')}"`
+  const started = Date.now()
+  const result = classifyCommandDeep(command)
+  const elapsed = Date.now() - started
+  assert.ok(elapsed < 2000, `不能卡：${elapsed}ms`)
+  assert.ok(result.depth <= 3, `深度要有上限，实际 ${result.depth}`)
+  assert.equal(result.truncated, true, '看不完就要如实标记')
+})
+
+test('套娃：一层里塞几十个也不卡，危险动作能被抓到', () => {
+  const parts = ['bash -c "rm -rf ./secret"']
+  for (let index = 0; index < 40; index += 1) parts.push(`bash -c "echo ${index}"`)
+  const started = Date.now()
+  const result = classifyCommandDeep(parts.join('; '))
+  const elapsed = Date.now() - started
+  assert.ok(elapsed < 1000, `不能卡：${elapsed}ms`)
+  assert.equal(result.kind, 'destroy')
+})
+
+test('套娃：超长命令先截断再分析', () => {
+  const command = `bash -c "${'echo a; '.repeat(4000)}rm -rf ./hidden"`
+  assert.ok(command.length > 20_000)
+  const started = Date.now()
+  const result = classifyCommandDeep(command)
+  assert.ok(Date.now() - started < 1000)
+  assert.equal(result.truncated, true)
+})
+
+test('套娃：审批卡片标红，并说明「里面也看过」', () => {
+  const callId = 'nested-card'
+  rememberToolCall({ callId, name: 'bash', arguments: { command: 'bash -c "rm -rf ./build"' } })
+  const text = approvalDisplayText({ toolName: 'bash', callId, reason: 'escalate sandbox to danger-full-access: 清理构建目录' })
+  assert.match(text.zh, /🔴/)
+  assert.match(text.zh, /\.\/build/)
+  assert.match(text.zh, /套了一层命令/)
+  assert.match(text.en, /another script inside/)
+  forgetToolCall({ callId })
+})
+
+/* ── v1.1.0：多个窗口同时干活时，缓存不能串台、不能无限涨 ─────────────────── */
+
+test('缓存：不同会话的同名 callId 不串台', () => {
+  const callId = 'shared-call-id'
+  rememberToolCall({ callId, name: 'write', arguments: { file_path: 'C:/tmp/only-a.txt' }, agent: { id: 'agent-a' } })
+
+  const fromB = approvalDisplayText({
+    toolName: 'write',
+    callId,
+    agent: { id: 'agent-b' },
+    reason: 'escalate sandbox to danger-full-access: 另一个窗口',
+  })
+  assert.doesNotMatch(fromB.zh, /only-a\.txt/, 'B 窗口不该看到 A 窗口的参数')
+
+  const fromA = approvalDisplayText({
+    toolName: 'write',
+    callId,
+    agent: { id: 'agent-a' },
+    reason: 'escalate sandbox to danger-full-access: 同一个窗口',
+  })
+  assert.match(fromA.zh, /only-a\.txt/)
+
+  // 两侧都拿不到作用域时退回按 callId 匹配——不能因此把功能丢了
+  const anonymous = approvalDisplayText({
+    toolName: 'write',
+    callId,
+    reason: 'escalate sandbox to danger-full-access: 没有 agent 信息',
+  })
+  assert.match(anonymous.zh, /only-a\.txt/)
+  forgetToolCall({ callId })
+})
+
+test('缓存：条数与字节都有上限；把命令撑大也躲不过审查', () => {
+  const pad = 'x'.repeat(1024)
+  for (let index = 0; index < 400; index += 1) {
+    rememberToolCall({ callId: `bulk-${index}`, name: 'write', arguments: { file_path: `C:/tmp/${index}.txt`, pad } })
+  }
+  const stats = cacheStats()
+  assert.ok(stats.calls <= 256, `条数要有上限，实际 ${stats.calls}`)
+  assert.ok(stats.callBytes <= 2 * 1024 * 1024, `字节要有上限，实际 ${stats.callBytes}`)
+
+  // 只存结论不存原文：超大命令不该把缓存撑大，但分级必须还在
+  // （否则「把命令撑到几百 KB」就成了绕过审查的办法）。
+  const hugeCommand = `bash -c "rm -rf ./hidden; ${'echo a; '.repeat(4000)}"`
+  assert.ok(hugeCommand.length > 20_000)
+  const beforeBytes = cacheStats().callBytes
+  rememberToolCall({ callId: 'huge', name: 'bash', arguments: { command: hugeCommand } })
+  assert.ok(cacheStats().callBytes - beforeBytes < 64 * 1024, '缓存里只该存结论，不该存几百 KB 的命令原文')
+
+  const card = approvalDisplayText({ toolName: 'bash', callId: 'huge', reason: 'escalate sandbox to danger-full-access: 大命令' })
+  assert.match(card.zh, /🔴/, '把命令撑大也不能让分级退回「看不出」')
+})
+
+/* ── v1.1.0：日志异步落盘，不卡主程序 ───────────────────────────────────── */
+
+test('日志：入队即返回（不阻塞），队列有界，落盘是异步的', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'plain-approvals-log-'))
+  const file = join(dir, 'app.log')
+  process.env.DSH_PLAIN_APPROVALS_LOG = file
+  try {
+    for (let index = 0; index < 700; index += 1) debugLog(`event ${index}`)
+    const queued = cacheStats().logQueued
+    assert.ok(queued > 0, 'debugLog 不能同步写盘（队列里应还有内容）')
+    assert.ok(queued <= 500, `队列要有界，实际 ${queued}`)
+
+    await flushLog()
+    assert.equal(cacheStats().logQueued, 0, 'flush 之后队列必须清空')
+    const text = readFileSync(file, 'utf8')
+    assert.match(text, /event 0/)
+    assert.match(text, /log queue overflow/, '丢弃过的行数要留痕')
+  } finally {
+    delete process.env.DSH_PLAIN_APPROVALS_LOG
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('日志：写不进去也不许抛错（日志永远不是功能的一部分）', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'plain-approvals-badlog-'))
+  const blocker = join(dir, 'blocker')
+  writeFileSync(blocker, 'x')
+  process.env.DSH_PLAIN_APPROVALS_LOG = join(blocker, 'nested', 'app.log')
+  try {
+    debugLog('这条写不进去')
+    await flushLog()
+    assert.equal(cacheStats().logQueued, 0)
+  } finally {
+    delete process.env.DSH_PLAIN_APPROVALS_LOG
+    rmSync(dir, { recursive: true, force: true })
+  }
 })

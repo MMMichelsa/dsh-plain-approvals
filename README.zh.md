@@ -13,35 +13,45 @@
 
 ## 安装方式
 
-在终端运行以下命令即可安装本插件：
+> **装到哪个 profile 很重要。** 桌面客户端用的是 `desktop`；装进 `web` 之类的 profile，桌面版根本加载不到本插件——这是最常见的一种「装上了但没反应」。
+
+### 一键安装（推荐）
+
+- **Windows**：双击本目录下的 `install.bat`。
+- **macOS / Linux**：在本目录下运行 `node install.mjs`。
+
+脚本会自己找 Node（PATH、常见安装目录、DSH 自带的运行时都试）、自己找 DSH 的 CLI，默认装进 `desktop`，装完会告诉你下一步（重启 DSH）。
+不需要你先配环境变量，支持带空格的路径和中文目录，安装前会自动备份 `package.json` 与 `pnpm-lock.yaml`。
+
+想换 profile：`install.bat --profile 名字` 或 `node install.mjs --profile 名字`。
+
+### 手动安装
 
 ```bash
-dsh plugin --profile web add github:MMMichelsa/dsh-plain-approvals
+dsh plugin --profile desktop add github:MMMichelsa/dsh-plain-approvals
 ```
-
-安装后请重启 Harness 服务。
 
 固定版本安装（推荐，标签发布后可用）：
 
 ```bash
-dsh plugin --profile web add github:MMMichelsa/dsh-plain-approvals#v1.0.3
+dsh plugin --profile desktop add github:MMMichelsa/dsh-plain-approvals#v1.1.0
 ```
 
-> 把 `web` 换成你实际的 profile 名（桌面版通常是 `desktop`）。安装需要网络，pnpm 会从 GitHub 拉取仓库。
+> 如果你用的不是桌面版（例如 CLI/TUI 版），把 `desktop` 换成你自己的 profile 名。安装需要网络，pnpm 会从 GitHub 拉取仓库。
 >
 > 如果本机没有 `git`（pnpm 报 git 相关错误），改用 tarball 安装：
 >
 > ```powershell
-> dsh plugin --profile web add https://codeload.github.com/MMMichelsa/dsh-plain-approvals/tar.gz/refs/heads/main
+> dsh plugin --profile desktop add https://codeload.github.com/MMMichelsa/dsh-plain-approvals/tar.gz/refs/heads/main
 > ```
 
 确认 profile 的 `dsh.profile.bundles` 里含 `dsh-plain-approvals`。
-卸载：`dsh plugin --profile web remove dsh-plain-approvals`，再从 `dsh.profile.bundles` 移除。
+卸载：`dsh plugin --profile desktop remove dsh-plain-approvals`，再从 `dsh.profile.bundles` 移除。
 
 本地开发（link 本地目录）：
 
 ```powershell
-dsh plugin --profile <profile> add link:<本仓库的绝对路径>
+dsh plugin --profile desktop add link:<本仓库的绝对路径>
 ```
 
 ## 效果示意
@@ -57,6 +67,10 @@ dsh plugin --profile <profile> add link:<本仓库的绝对路径>
 ```
 
 删除 / 覆盖类操作会换成更醒目的 🔴 高危提示，并列出会被删除或覆盖的路径。
+
+命令里再套一层也会被拆开看真实命令：`bash -c "rm -rf x"`、`sh -c …`、`python -c …`、`cmd /c …`、
+`pwsh -Command …`，连 `powershell -EncodedCommand <base64>` 这种编码过的都能解出来看。
+最多往下看 3 层；预算不够时卡片会明说「后面几层没看完」，不会假装全看过了，也绝不会因为套娃太深把自己卡死。
 
 ```text
 原始提问：Which sandbox mode should the retry use?（选项 label 为 workspace-write / danger-full-access）
